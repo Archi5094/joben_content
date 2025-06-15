@@ -1,21 +1,27 @@
 import streamlit as st
 import pandas as pd
-from openpyxl import load_workbook
 from io import BytesIO
 
 # --- Mappings ---
 territory_region_map = {
     'T1': 'QC', 'T2': 'QC', 'T3': 'QC',
     'T4': 'ON', 'T5': 'ON', 'T6': 'ON',
-    'T7': 'BC', 'T8': 'PR', 'T9': 'AR',
+    'T7': 'BC',
+    'T8': 'PR',
+    'T9': 'AR',
     'Territory T1': 'QC', 'Territory T2': 'QC', 'Territory T3': 'QC',
     'Territory T4': 'ON', 'Territory T5': 'ON', 'Territory T6': 'ON',
-    'Territory T7': 'BC', 'Territory T8': 'PR', 'Territory T9': 'AR'
+    'Territory T7': 'BC',
+    'Territory T8': 'PR',
+    'Territory T9': 'AR'
 }
 
 model_map = {
-    'CO45': 'Outlander', 'COEV': 'Outlander PHEV',
-    'CE45': 'Eclipse Cross', 'CS45': 'RVR', 'CG44': 'Mirage'
+    'CO45': 'Outlander',
+    'COEV': 'Outlander PHEV',
+    'CE45': 'Eclipse Cross',
+    'CS45': 'RVR',
+    'CG44': 'Mirage'
 }
 
 origin_map = {
@@ -25,114 +31,103 @@ origin_map = {
     'Meta': 'Meta'
 }
 
-model_row_map = {'Outlander': 69, 'Outlander PHEV': 70, 'Eclipse Cross': 71, 'RVR': 72, 'Mirage': 73}
-origin_row_map = {'ClickShop': 44, 'CWS': 45, 'AutoTrader': 46, 'Meta': 47}
-footfall_row_map = {'Outlander': 62, 'Outlander PHEV': 63, 'Eclipse Cross': 64, 'RVR': 65, 'Mirage': 66}
-region_col_map = {'BC': 'L', 'PR': 'M', 'ON': 'N', 'QC': 'O', 'AR': 'P'}
+# --- Page Setup ---
+st.set_page_config(page_title="Excel Report Generator", layout="wide")
+st.title("📊 Weekly Report Generator")
+st.markdown("Upload your **Corporate Leads**, **Footfall**, and **Sales** Excel files to generate clean summary reports by region.")
 
-def get_sheet_names(uploaded_file):
-    if uploaded_file is None:
-        return []
-    try:
-        uploaded_file.seek(0)
-        xls = pd.ExcelFile(uploaded_file)
-        uploaded_file.seek(0)
-        return xls.sheet_names
-    except Exception as e:
-        st.error(f"Error reading sheets: {e}")
-        return []
+# --- File Uploads ---
+# --- File Uploads ---
+st.sidebar.header("Upload Excel Files")
 
-st.title("📊 Weekly Regional Report Generator")
+corporate_file = st.sidebar.file_uploader("📂 Corporate Leads File", type=["xlsx"])
+footfall_file = st.sidebar.file_uploader("📂 Footfall File", type=["xlsx"])
+sales_file = st.sidebar.file_uploader("📂 Sales File", type=["xlsx"])
 
-# File Uploaders
-report_file = st.file_uploader("Upload Report File", type=["xlsx"])
-report_sheet = st.selectbox("Select Report Sheet", get_sheet_names(report_file)) if report_file else None
+# --- Sheet Selection ---
+corporate_sheet = footfall_sheet = sales_sheet = None
 
-sales_file = st.file_uploader("Upload Retail Sales File", type=["xlsx"])
-sales_sheet = st.selectbox("Select Retail Sales Sheet", get_sheet_names(sales_file)) if sales_file else None
+if corporate_file:
+    xls = pd.ExcelFile(corporate_file)
+    corporate_sheet = st.sidebar.selectbox("📝 Select sheet for Corporate Leads", xls.sheet_names, key="corp")
 
-leads_file = st.file_uploader("Upload Corporate Leads File", type=["xlsx"])
-leads_sheet = st.selectbox("Select Corporate Leads Sheet", get_sheet_names(leads_file)) if leads_file else None
+if footfall_file:
+    xls = pd.ExcelFile(footfall_file)
+    footfall_sheet = st.sidebar.selectbox("📝 Select sheet for Footfall", xls.sheet_names, key="foot")
 
-footfall_file = st.file_uploader("Upload Footfall File", type=["xlsx"])
-footfall_sheet = st.selectbox("Select Footfall Sheet", get_sheet_names(footfall_file)) if footfall_file else None
+if sales_file:
+    xls = pd.ExcelFile(sales_file)
+    sales_sheet = st.sidebar.selectbox("📝 Select sheet for Sales", xls.sheet_names, key="sales")
 
-if st.button("✅ Generate Updated Report"):
-    if not all([report_file, report_sheet, sales_file, sales_sheet, leads_file, leads_sheet, footfall_file, footfall_sheet]):
-        st.error("Please upload all required files and select sheets.")
-    else:
-        try:
-            # Load Report Workbook
-            report_file.seek(0)
-            report_bytes = BytesIO(report_file.read())
-            report_bytes.seek(0)
-            wb = load_workbook(filename=report_bytes, data_only=True)
-            ws = wb[report_sheet]
 
-            # Load Footfall Data
-            footfall_file.seek(0)
-            ff_df = pd.read_excel(footfall_file, sheet_name=footfall_sheet)
-            #st.write("Footfall Data Sample:", ff_df.head())
-            ff_df['Region'] = ff_df['Region'].map(territory_region_map)
-            ff_df.dropna(subset=['Region', 'Model', 'Traffic'], inplace=True)
-            ff_pivot = pd.pivot_table(ff_df, index='Model', columns='Region', values='Traffic', aggfunc='sum', fill_value=0)
-            st.write("Footfall Pivot Table:", ff_pivot)
+# --- Date Inputs ---
+start_date = st.sidebar.date_input("📅 Start Date")
+end_date = st.sidebar.date_input("📅 End Date")
 
-            for model, row in footfall_row_map.items():
-                if model in ff_pivot.index:
-                    for region, col in region_col_map.items():
-                        val = int(ff_pivot.loc[model].get(region, 0))
-                        #st.write(f"Writing Footfall: ws[{col}{row}] = {val}")
-                        ws[f"{col}{row}"] = val
+# --- Processing Functions ---
+def process_corporate(upload, sheet_name):
+    df = pd.read_excel(upload, sheet_name=sheet_name)
+    df = df[df['Origin'].isin(origin_map)]
+    df['Origin'] = df['Origin'].map(origin_map)
+    df['Region'] = df['Territory'].map(territory_region_map)
+    df.dropna(subset=['Origin', 'Region'], inplace=True)
+    pivot = pd.pivot_table(df, index='Origin', columns='Region', values='Province', aggfunc='count', fill_value=0)
+    pivot['Total'] = pivot.sum(axis=1)
+    desired_order = ['Total', 'BC', 'PR', 'ON', 'QC', 'AR']
+    return pivot[[col for col in desired_order if col in pivot.columns]]
 
-            # Load Retail Sales Data
-            sales_file.seek(0)
-            rs_df = pd.read_excel(sales_file, sheet_name=sales_sheet)
-           # st.write("Retail Sales Data Sample:", rs_df.head())
-            rs_df = rs_df[rs_df['Model Code'].isin(model_map)]
-            rs_df['Model'] = rs_df['Model Code'].map(model_map)
-            rs_df['Region'] = rs_df['Terr.'].map(territory_region_map)
-            rs_df.dropna(subset=['Model', 'Region'], inplace=True)
-            rs_pivot = pd.pivot_table(rs_df, index='Model', columns='Region', values='Retail Count', aggfunc='sum', fill_value=0)
-            st.write("Retail Sales Pivot Table:", rs_pivot)
+def process_sales(upload, start, end, sheet_name):
+    df = pd.read_excel(upload, sheet_name=sheet_name)
+    df['Calendar Date'] = pd.to_datetime(df['Calendar Date'], errors='coerce')
+    df = df[(df['Calendar Date'] >= pd.to_datetime(start)) & (df['Calendar Date'] <= pd.to_datetime(end))]
+    df = df[df['Model Code'].isin(model_map)]
+    df['Model'] = df['Model Code'].map(model_map)
+    df['Region'] = df['Terr.'].map(territory_region_map)
+    df.dropna(subset=['Model', 'Region'], inplace=True)
+    pivot = pd.pivot_table(df, index='Model', columns='Region', values='Retail Count', aggfunc='sum', fill_value=0)
+    pivot['Total'] = pivot.sum(axis=1)
+    desired_order = ['Total', 'BC', 'PR', 'ON', 'QC', 'AR']
+    return pivot[[col for col in desired_order if col in pivot.columns]]
 
-            for model, row in model_row_map.items():
-                if model in rs_pivot.index:
-                    for region, col in region_col_map.items():
-                        val = int(rs_pivot.loc[model].get(region, 0))
-                        #st.write(f"Writing Retail Sales: ws[{col}{row}] = {val}")
-                        ws[f"{col}{row}"] = val
+def process_footfall(upload, sheet_name):
+    df = pd.read_excel(upload, sheet_name=sheet_name)
+    df['Region'] = df['Region'].map(territory_region_map)
+    df.dropna(subset=['Region', 'Model', 'Traffic'], inplace=True)
+    pivot = pd.pivot_table(df, index='Model', columns='Region', values='Traffic', aggfunc='sum', fill_value=0)
+    pivot['Total'] = pivot.sum(axis=1)
+    ordered_cols = ['Total', 'BC', 'PR', 'ON', 'QC', 'AR']
+    for col in ordered_cols:
+        if col not in pivot.columns:
+            pivot[col] = 0
+    return pivot[ordered_cols]
 
-            # Load Corporate Leads Data
-            leads_file.seek(0)
-            cl_df = pd.read_excel(leads_file, sheet_name=leads_sheet)
-            #st.write("Corporate Leads Data Sample:", cl_df.head())
-            cl_df = cl_df[cl_df['Origin'].isin(origin_map)]
-            cl_df['Origin'] = cl_df['Origin'].map(origin_map)
-            cl_df['Region'] = cl_df['Territory'].map(territory_region_map)
-            cl_df.dropna(subset=['Origin', 'Region'], inplace=True)
-            cl_pivot = pd.pivot_table(cl_df, index='Origin', columns='Region', values='Province', aggfunc='count', fill_value=0)
-            st.write("Corporate Leads Pivot Table:", cl_pivot)
 
-            for origin, row in origin_row_map.items():
-                if origin in cl_pivot.index:
-                    for region, col in region_col_map.items():
-                        val = int(cl_pivot.loc[origin].get(region, 0))
-                       # st.write(f"Writing Corporate Leads: ws[{col}{row}] = {val}")
-                        ws[f"{col}{row}"] = val
+def download_excel(df, name):
+    buffer = BytesIO()
+    df.to_excel(buffer, index=True)
+    buffer.seek(0)
+    return buffer
 
-            # Save to BytesIO
-            output = BytesIO()
-            wb.save(output)
-            output.seek(0)
+# --- Processing & Output ---
+if corporate_file and footfall_file and sales_file:
+    st.success("✅ All files uploaded successfully!")
+    
+    generate = st.button("🚀 Generate Reports")
 
-            st.success("Report generated successfully!")
-            st.download_button(
-                label="Download Updated Report",
-                data=output,
-                file_name="Updated_Weekly_Regional_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+    if generate:
+        st.subheader("📈 Corporate Leads Report")
+        corporate_df = process_corporate(corporate_file, corporate_sheet)
+        st.dataframe(corporate_df.style.format(na_rep="0"), use_container_width=True)
+        st.download_button("⬇️ Download Corporate Report", download_excel(corporate_df, "Corporate_Report.xlsx"), file_name="Corporate_Report.xlsx")
 
-        except Exception as e:
-            st.error(f"Error processing files: {e}")
+        st.subheader("🚶 Footfall Report")
+        footfall_df = process_footfall(footfall_file, footfall_sheet)
+        st.dataframe(footfall_df.style.format(na_rep="0"), use_container_width=True)
+        st.download_button("⬇️ Download Footfall Report", download_excel(footfall_df, "Footfall_Report.xlsx"), file_name="Footfall_Report.xlsx")
+
+        st.subheader("🛒 Sales Report")
+        sales_df = process_sales(sales_file, start_date, end_date, sales_sheet)
+        st.dataframe(sales_df.style.format(na_rep="0"), use_container_width=True)
+        st.download_button("⬇️ Download Sales Report", download_excel(sales_df, "Sales_Report.xlsx"), file_name="Sales_Report.xlsx")
+else:
+    st.info("📄 Please upload all three files to enable the 'Generate Reports' button.")
