@@ -74,10 +74,16 @@ def process_corporate(upload, sheet_name):
     pivot = pd.pivot_table(df, index='Origin', columns='Region', values='Province', aggfunc='count', fill_value=0)
     pivot['Total'] = pivot.sum(axis=1)
     desired_order = ['Total', 'BC', 'PR', 'ON', 'QC', 'AR']
+    origin_order = ['ClickShop', 'CWS', 'AutoTrader', 'Meta']
+    pivot = pivot.reindex(origin_order).dropna(how='all')
     return pivot[[col for col in desired_order if col in pivot.columns]]
 
 def process_sales(upload, start, end, sheet_name):
     df = pd.read_excel(upload, sheet_name=sheet_name)
+    
+    valid_codes = {'01', '03', '04', '13', '16', '17', '52', '53', '54', '55', '57', '18'}
+    df = df[df.iloc[:, 11].astype(str).isin(valid_codes)]
+    
     df['Calendar Date'] = pd.to_datetime(df['Calendar Date'], errors='coerce')
     df = df[(df['Calendar Date'] >= pd.to_datetime(start)) & (df['Calendar Date'] <= pd.to_datetime(end))]
     df = df[df['Model Code'].isin(model_map)]
@@ -87,7 +93,10 @@ def process_sales(upload, start, end, sheet_name):
     pivot = pd.pivot_table(df, index='Model', columns='Region', values='Retail Count', aggfunc='sum', fill_value=0)
     pivot['Total'] = pivot.sum(axis=1)
     desired_order = ['Total', 'BC', 'PR', 'ON', 'QC', 'AR']
-    return pivot[[col for col in desired_order if col in pivot.columns]]
+    pivot=pivot[[col for col in desired_order if col in pivot.columns]]
+    model_order = ['Outlander', 'Outlander PHEV', 'Eclipse Cross', 'RVR', 'Mirage']
+    pivot=pivot.reindex(model_order).dropna(how='all')  # Drop rows not present
+    return pivot
 
 def process_footfall(upload, sheet_name):
     df = pd.read_excel(upload, sheet_name=sheet_name)
@@ -99,7 +108,10 @@ def process_footfall(upload, sheet_name):
     for col in ordered_cols:
         if col not in pivot.columns:
             pivot[col] = 0
+    model_order = ['Outlander', 'Outlander PHEV', 'Eclipse Cross', 'RVR', 'Mirage']
+    pivot = pivot.reindex(model_order).dropna(how='all')
     return pivot[ordered_cols]
+
 
 
 def download_excel(df, name):
