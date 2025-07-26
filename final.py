@@ -82,8 +82,7 @@ def process_sales(upload, start, end, sheet_name):
     df = pd.read_excel(upload, sheet_name=sheet_name)
     
     valid_codes = {'01', '03', '04', '13', '16', '17', '52', '53', '54', '55', '57', '18'}
-    df = df[df.iloc[:, 11].astype(str).isin(valid_codes)]
-    
+    df = df[df['Sales Type'].astype(str).isin(valid_codes)]    
     df['Calendar Date'] = pd.to_datetime(df['Calendar Date'], errors='coerce')
     df = df[(df['Calendar Date'] >= pd.to_datetime(start)) & (df['Calendar Date'] <= pd.to_datetime(end))]
     df = df[df['Model Code'].isin(model_map)]
